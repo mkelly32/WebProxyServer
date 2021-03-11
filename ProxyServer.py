@@ -1,6 +1,8 @@
 import threading
 import socket
 import sys
+import utils
+import urllib
 
 class Server:
     HOST = '127.0.0.1'
@@ -18,25 +20,66 @@ class Server:
 
     def server_listen(self):
         print("Server waiting for connections..."   )
+        local = threading.local()
         while self.status:
             (conn, addr) = self.serverSocket.accept()
             (ip, port) = addr
             if (self.HOST==ip):
-                t = threading.Thread(name=self.getClientName(addr), target=self.server_threads  , args=(conn, addr))
+                t = threading.Thread(name=self.getClientName(addr), target=self.server_thread  , args=(conn, addr))
             else:
-                print(addr)
-            #target = self.proxy_thread, args=(conn, addr)
+                t = threading.Thread(name=self.getClientName(addr), target=self.client_thread, args=(conn, addr, local))
             t.setDaemon(True)
             t.start()
         self.serverSocket.close()
 
-    def server_threads(self, conn, addr):
+    def client_thread(self, conn, addr, local):
+        try:
+            print("Connecion from: ", addr)
+            conn.settimeout(1)
+            local.data = conn.recv(1024)
+            if local.data=="":
+                return
+            parsedReq = self.parseReq(addr, local.data)
+            self.respond(parsedReq, conn)
+        finally:
+            conn.close()
+
+    def respond(self, data, conn):
+        res = ""
+        if 'ERROR' in data:
+            res = self.createResponse()
+            conn.sendall(res)
+
+    def parseReq(self, addr, data):
+        req = utils.HTTPRequest(data)        
+        req.path = url = urllib.unquote(req.path).decode('utf-8')
+
+        if req.error_code is not None:
+            return {
+                        'ERROR': {
+                            'msg': req.error_message,
+                            'error_code': req.error_code
+                        }
+                }
+        if req.headers['host'] in self.blocklist:
+            return {
+                        'ERROR': {
+                            'msg' : "Host is in blocklist",
+                            'error_code': 403
+                        }
+                }
+        else:
+            return {}
+
+
+    def server_thread(self, conn, addr):
         req = conn.recv(1024)
         if len(req) < 3:
             conn.close()
             return
         first_line = str(req).split('\n')[0]
         url = first_line.split(' ')[1]
+        print(url)
         if url in self.blocklist:
             print("Can't access blacklisted url: ", url)
             conn.close()
@@ -101,10 +144,7 @@ class Server:
 
 def exitProgram(server):
     print("Exiting program...")
-    server.status = False
-    main = threading.currentThread()
-    for t in threading.enumerate():
-        t.join()
+    
     print("Done")
     quit()
 
@@ -114,7 +154,8 @@ if __name__ == '__main__':
     t.setDaemon(True)
     print("Web Proxy Server Management Console")
     print("Type \'help\' for list of commands\n")
-    while True:
+    status = True
+    while status:
         command = input()
         if command=='help':
             print("\nhelp\t\tDisplay commands\n" +
@@ -125,13 +166,18 @@ if __name__ == '__main__':
         elif command=='start':
             t.start()
         elif command=='exit':
-            exitProgram(server)
-        elif command.find('exit, beg=0'):
+            status = False
+        elif command.find('block, beg=0'):
             server.blocklist.append(command[4:])
         elif command=='blocklist':
-            for url in server.blocklist:
-                print(url,"\n")
+            print(server.blocklist)
         else:
             print("Unkown command: ",command +"\n")
+    main_t = threading.currentThread()
+    for t in threading.enumerate():
+        if t is main_t:
+            continue
+        t.join()
+    print("Program exiting...")
 
         

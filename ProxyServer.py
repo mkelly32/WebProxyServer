@@ -1,12 +1,12 @@
 import threading
 import socket
-import ssl
 
 class Server:
     HOST = '127.0.0.1'
     PORT = 8080
     blocklist = ['www.reddit.com']
     status = True
+    cache = {}
     
     def __init__(self):
         self.serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -74,24 +74,19 @@ class Server:
                     except socket.error as msg:
                         pass
         else:
-            try:
+            if address in self.cache:
+                print("Cache hit!")
+                conn.sendall(self.cache.get(address))
+            else:
+                print("Cache miss...")
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
                     s.connect((address, port))
                     s.sendall(req)
-
-                    while True:
-                        data = s.recv(1024)
-                        if len(data) > 0:
-                            conn.sendall(data)
-                        else:
-                            break
-                    conn.close()
-            
-            except socket.error as msg:
-                print("Erorr: ", msg)
-                if conn:
-                    conn.close()
-                print("Warning, reseting ", addr)
+                    data = s.recv(1024)
+                    if len(data) > 0:
+                        conn.sendall(data)
+                    self.cache.update({address:data})
+        conn.close()
 
     def getClientName(self, addr):
         lock = threading.Lock()

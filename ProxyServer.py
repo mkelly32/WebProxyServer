@@ -52,21 +52,24 @@ class Server:
             address = url[0]
             port = int(url[1])
             print(address, port)
-            context = ssl.create_default_context()
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
-                    with context.wrap_socket(s, server_hostname=address) as connectS:
-                        connectS.connect((address, port))
-                        connectS.sendall(req)
-                        while  True:
-                            data = connectS.recv(1024)
-                            print(data)
-                            if len(data) > 0:
-                                conn.sendall(data)
-                            else:
-                                break
-            except socket.error as msg:
-                print(msg)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
+                s.connect((address, port))
+                res = "HTTP/1.0 200 Connection established\r\nProxy-agent: Mike\r\n\r\n"
+                conn.sendall(res.encode())
+                conn.setblocking(0)
+                s.setblocking(0)  
+
+                while True:
+                    try:
+                        data = conn.recv(1024)
+                        s.sendall(data)
+                    except socket.error as msg:
+                        pass
+                    try:
+                        data = s.recv(1024)
+                        conn.sendall(data)
+                    except socket.error as msg:
+                        pass
         else:                                    #HTTP
             port_position = temp.find(":")
             address_end = temp.find("/")

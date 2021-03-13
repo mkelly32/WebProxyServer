@@ -1,5 +1,6 @@
 import threading
 import socket
+import time
 
 class Server:
     HOST = '127.0.0.1'
@@ -74,18 +75,21 @@ class Server:
                     except socket.error as msg:
                         pass
         else:
+            start = round(time.time()*1000)
             if address in self.cache:
-                print("Cache hit!")
                 conn.sendall(self.cache.get(address))
+                end = round(time.time()*1000)
+                print("Cache hit! Time (ms):", end-start)
             else:
-                print("Cache miss...")
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
                     s.connect((address, port))
                     s.sendall(req)
                     data = s.recv(1024)
                     if len(data) > 0:
                         conn.sendall(data)
-                    self.cache.update({address:data})
+                self.cache.update({address:data})
+                end = round(time.time()*1000)
+                print("Cache miss... Time (ms):", end-start)
         conn.close()
 
     def getClientName(self, addr):

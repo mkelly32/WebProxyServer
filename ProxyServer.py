@@ -1,8 +1,6 @@
 import threading
 import socket
-import sys
-import utils
-import urllib
+import ssl
 
 class Server:
     HOST = '127.0.0.1'
@@ -20,56 +18,12 @@ class Server:
 
     def server_listen(self):
         print("Server waiting for connections..."   )
-        local = threading.local()
         while self.status:
             (conn, addr) = self.serverSocket.accept()
-            (ip, port) = addr
-            if (self.HOST==ip):
-                t = threading.Thread(name=self.getClientName(addr), target=self.server_thread  , args=(conn, addr))
-            else:
-                t = threading.Thread(name=self.getClientName(addr), target=self.client_thread, args=(conn, addr, local))
+            t = threading.Thread(name=self.getClientName(addr), target=self.server_thread  , args=(conn, addr))
             t.setDaemon(True)
             t.start()
         self.serverSocket.close()
-
-    def client_thread(self, conn, addr, local):
-        try:
-            print("Connecion from: ", addr)
-            conn.settimeout(1)
-            local.data = conn.recv(1024)
-            if local.data=="":
-                return
-            parsedReq = self.parseReq(addr, local.data)
-            self.respond(parsedReq, conn)
-        finally:
-            conn.close()
-
-    def respond(self, data, conn):
-        res = ""
-        if 'ERROR' in data:
-            res = self.createResponse()
-            conn.sendall(res)
-
-    def parseReq(self, addr, data):
-        req = utils.HTTPRequest(data)        
-        req.path = url = urllib.unquote(req.path).decode('utf-8')
-
-        if req.error_code is not None:
-            return {
-                        'ERROR': {
-                            'msg': req.error_message,
-                            'error_code': req.error_code
-                        }
-                }
-        if req.headers['host'] in self.blocklist:
-            return {
-                        'ERROR': {
-                            'msg' : "Host is in blocklist",
-                            'error_code': 403
-                        }
-                }
-        else:
-            return {}
 
 
     def server_thread(self, conn, addr):
@@ -79,13 +33,12 @@ class Server:
             return
         first_line = str(req).split('\n')[0]
         url = first_line.split(' ')[1]
-        print(url)
+        request_type = first_line.split(' ')[0][2:]
         if url in self.blocklist:
             print("Can't access blacklisted url: ", url)
             conn.close()
             return
-
-        print("Incoming ", first_line.split(' ')[0][2:], "request from browser")
+        print("Incoming", request_type, "request from", addr, "to", url)
 
         #Parse  the request for destination port and address
         address_start = url.find("://")
@@ -94,40 +47,60 @@ class Server:
         else:
             temp = url[(address_start+3):]
 
-        port_position = temp.find(":")
-        address_end = temp.find("/")
-        if address_end == -1:
-            address_end = len(temp)
-        
-        address = ""
-        port = -1
-        if port_position == -1 or address_end << port_position:
-            port = 80
-            address = temp[:address_end]
-        else:
-            port = int((temp[(port_position+1):])[:address_end-port_position-1])
-            address = temp[:port_position]
+        if request_type == 'CONNECT':           #HTTPS
+            url = temp.split(':')
+            address = url[0]
+            port = int(url[1])
+            print(address, port)
+            context = ssl.create_default_context()
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
+                    with context.wrap_socket(s, server_hostname=address) as connectS:
+                        connectS.connect((address, port))
+                        connectS.sendall(req)
+                        while  True:
+                            data = connectS.recv(1024)
+                            print(data)
+                            if len(data) > 0:
+                                conn.sendall(data)
+                            else:
+                                break
+            except socket.error as msg:
+                print(msg)
+        else:                                    #HTTP
+            port_position = temp.find(":")
+            address_end = temp.find("/")
+            if address_end == -1:
+                address_end = len(temp)
+            
+            address = ""
+            port = -1
+            if port_position == -1 or address_end << port_position:
+                port = 80
+                address = temp[:address_end]
+            else:
+                port = int((temp[(port_position+1):])[:address_end-port_position-1])
+                address = temp[:port_position]
 
-        #Connect to the addresss in request
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
-                s.settimeout(5)
-                s.connect((address, port))
-                s.sendall(req)
+            #Connect to the addresss in request
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
+                    s.connect((address, port))
+                    s.sendall(req)
 
-                while True:
-                    data = s.recv(1024)
-                    if len(data) > 0:
-                        conn.send(data)
-                    else:
-                        break
-                conn.close()
-        
-        except socket.error as msg:
-            print("Erorr: ", msg)
-            if conn:
-                conn.close()
-            print("Warning, reseting ", addr)
+                    while True:
+                        data = s.recv(1024)
+                        if len(data) > 0:
+                            conn.sendall(data)
+                        else:
+                            break
+                    conn.close()
+            
+            except socket.error as msg:
+                print("Erorr: ", msg)
+                if conn:
+                    conn.close()
+                print("Warning, reseting ", addr)
 
     def getClientName(self, addr):
         lock = threading.Lock()
@@ -141,12 +114,6 @@ class Server:
         self.no_clients += 1
         lock.release()
         return str(self.clients[client_address])
-
-def exitProgram(server):
-    print("Exiting program...")
-    
-    print("Done")
-    quit()
 
 if __name__ == '__main__':
     server = Server()

@@ -5,7 +5,7 @@ import ssl
 class Server:
     HOST = '127.0.0.1'
     PORT = 8080
-    blocklist = []
+    blocklist = ['www.reddit.com']
     status = True
     
     def __init__(self):
@@ -31,27 +31,28 @@ class Server:
         if len(req) < 3:
             conn.close()
             return
-        first_line = str(req).split('\n')[0]
-        url = first_line.split(' ')[1]
-        request_type = first_line.split(' ')[0][2:]
-        if url in self.blocklist:
-            print("Can't access blacklisted url: ", url)
-            conn.close()
-            return
-        print("Incoming", request_type, "request from", addr, "to", url)
+        parseReq = str(req).split('\n')
+        first_line = parseReq[0].split(' ')
+        url = first_line[1]
+        request_type = first_line[0][2:]
 
-        #Parse  the request for destination port and address
-        address_start = url.find("://")
-        if address_start == -1:
-            temp = url
-        else:
-            temp = url[(address_start+3):]
-
-        if request_type == 'CONNECT':           #HTTPS
-            url = temp.split(':')
+        addressStart = url.find('://')
+        if addressStart == -1:
+            url = url.split(':')
             address = url[0]
             port = int(url[1])
-            print(address, port)
+        else:
+            address = url[addressStart+3:len(url)-1]
+            port = 80
+
+        print("Incoming", request_type, "request from", addr, "to", address)
+        if address in self.blocklist:
+            conn.send(b'HTTP/1.1 403 Forbidden')
+            print("Can't access blacklisted address: ", address)
+            conn.close()
+            return
+    
+        if request_type == 'CONNECT':
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
                 s.connect((address, port))
                 res = "HTTP/1.0 200 Connection established\r\nProxy-agent: Mike\r\n\r\n"
@@ -70,22 +71,7 @@ class Server:
                         conn.sendall(data)
                     except socket.error as msg:
                         pass
-        else:                                    #HTTP
-            port_position = temp.find(":")
-            address_end = temp.find("/")
-            if address_end == -1:
-                address_end = len(temp)
-            
-            address = ""
-            port = -1
-            if port_position == -1 or address_end << port_position:
-                port = 80
-                address = temp[:address_end]
-            else:
-                port = int((temp[(port_position+1):])[:address_end-port_position-1])
-                address = temp[:port_position]
-
-            #Connect to the addresss in request
+        else:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
                     s.connect((address, port))
@@ -137,17 +123,19 @@ if __name__ == '__main__':
             t.start()
         elif command=='exit':
             status = False
-        elif command.find('block, beg=0'):
-            server.blocklist.append(command[4:])
         elif command=='blocklist':
             print(server.blocklist)
+        elif command[0:5]=='block':
+            server.blocklist.append(command[6:])
+        elif command[0:7]=='unblock':
+            server.blocklist.remove(command[8:])
         else:
-            print("Unkown command: ",command +"\n")
+            print("Unkown command:",command)
     main_t = threading.currentThread()
+    server.serverSocket.close()
     for t in threading.enumerate():
-        if t is main_t:
-            continue
-        t.join()
+        if t is not main_t:
+            t.join()
     print("Program exiting...")
 
         

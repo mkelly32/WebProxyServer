@@ -15,6 +15,7 @@ class Server:
         self.serverSocket.listen(10)
         self.clients = {}
         self.no_clients = 0
+        self.status=True
 
     def server_listen(self):
         print("Server waiting for connections..."   )
@@ -52,6 +53,7 @@ class Server:
             conn.close()
             return
     
+
         if request_type == 'CONNECT':
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as  s:
                 s.connect((address, port))
@@ -110,8 +112,7 @@ if __name__ == '__main__':
     t.setDaemon(True)
     print("Web Proxy Server Management Console")
     print("Type \'help\' for list of commands\n")
-    status = True
-    while status:
+    while server.status:
         command = input()
         if command=='help':
             print("\nhelp\t\tDisplay commands\n" +
@@ -122,7 +123,7 @@ if __name__ == '__main__':
         elif command=='start':
             t.start()
         elif command=='exit':
-            status = False
+            server.status = False
         elif command=='blocklist':
             print(server.blocklist)
         elif command[0:5]=='block':
@@ -132,7 +133,6 @@ if __name__ == '__main__':
         else:
             print("Unkown command:",command)
     main_t = threading.currentThread()
-    server.serverSocket.close()
     for t in threading.enumerate():
         if t is not main_t:
             t.join()
